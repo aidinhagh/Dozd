@@ -1,0 +1,12 @@
+{
+  "name": "cyber-scavenger-bot",
+  "version": "1.0.0",
+  "description": "Cyber City Scavenger Telegram Web App",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {},
+  "engines": {
+    "node": "24.x"
+  }
+}
