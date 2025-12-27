@@ -1,0 +1,869 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Cyber City Scavenger</title>
+    <!-- Telegram Web App SDK -->
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap');
+
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #020205;
+            font-family: 'Orbitron', sans-serif;
+            color: #0ff;
+            touch-action: none;
+        }
+
+        #game-container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            overflow: hidden;
+        }
+
+        /* Scanline Effect */
+        #scanlines {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(
+                to bottom,
+                rgba(255,255,255,0),
+                rgba(255,255,255,0) 50%,
+                rgba(0,0,0,0.1) 50%,
+                rgba(0,0,0,0.1)
+            );
+            background-size: 100% 4px;
+            pointer-events: none;
+            z-index: 5;
+        }
+
+        canvas {
+            background: #050510;
+            border: 1px solid #0ff;
+        }
+
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            z-index: 6;
+        }
+
+        .hud-bar {
+            display: flex;
+            justify-content: space-between;
+            padding: 20px;
+            font-size: 20px;
+            font-weight: bold;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .stat-box {
+            background: rgba(0, 10, 20, 0.9);
+            padding: 10px 20px;
+            border: 1px solid #0ff;
+            border-bottom: 3px solid #0ff;
+            box-shadow: 0 0 15px rgba(0, 255, 255, 0.1);
+            border-radius: 4px;
+            text-shadow: 0 0 5px #0ff;
+        }
+
+        #message-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.85);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 10;
+            pointer-events: auto;
+            backdrop-filter: blur(5px);
+        }
+
+        h1 {
+            font-size: 48px;
+            margin-bottom: 15px;
+            color: #fff;
+            text-shadow: 0 0 10px #0ff, 0 0 20px #0ff;
+            text-align: center;
+            padding: 0 20px;
+        }
+
+        p {
+            font-size: 16px;
+            margin-bottom: 30px;
+            color: #ddd;
+            text-align: center;
+            max-width: 500px;
+            padding: 0 20px;
+            line-height: 1.5;
+        }
+
+        .btn {
+            background: rgba(0, 255, 255, 0.15);
+            color: #0ff;
+            font-family: 'Orbitron', sans-serif;
+            font-size: 20px;
+            font-weight: bold;
+            padding: 15px 50px;
+            border: 1px solid #0ff;
+            cursor: pointer;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            transition: all 0.2s;
+            box-shadow: 0 0 10px rgba(0, 255, 255, 0.2);
+            pointer-events: auto;
+            border-radius: 2px;
+        }
+
+        .btn:hover {
+            background: #0ff;
+            color: #000;
+            box-shadow: 0 0 25px #0ff;
+        }
+        
+        #player-id-display {
+            position: absolute;
+            top: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: #0ff;
+            font-size: 12px;
+            opacity: 0.7;
+            text-shadow: 0 0 5px #0ff;
+        }
+
+        /* Joystick area */
+        #joystick-zone {
+            position: absolute;
+            bottom: 40px;
+            left: 40px;
+            width: 140px;
+            height: 140px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 2px dashed rgba(255, 255, 255, 0.2);
+            border-radius: 50%;
+            display: none; 
+            pointer-events: auto;
+            touch-action: none;
+        }
+
+        #joystick-knob {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 50px;
+            height: 50px;
+            background: rgba(0, 255, 255, 0.5);
+            border: 2px solid #fff;
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            box-shadow: 0 0 10px #0ff;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        .shake {
+            animation: shake 0.4s cubic-bezier(.36,.07,.19,.97) both;
+        }
+
+        @keyframes shake {
+            10%, 90% { transform: translate3d(-2px, 0, 0); }
+            20%, 80% { transform: translate3d(4px, 0, 0); }
+            30%, 50%, 70% { transform: translate3d(-6px, 0, 0); }
+            40%, 60% { transform: translate3d(6px, 0, 0); }
+        }
+    </style>
+</head>
+<body>
+
+<div id="game-container">
+    <div id="scanlines"></div>
+    <div id="player-id-display"></div>
+    <canvas id="gameCanvas"></canvas>
+    
+    <div id="ui-layer">
+        <div class="hud-bar">
+            <div class="stat-box">CREDITS: $<span id="scoreDisplay">0</span> / $100</div>
+            <div class="stat-box">TIME: <span id="timeDisplay">2:00</span></div>
+        </div>
+        
+        <div id="joystick-zone">
+            <div id="joystick-knob"></div>
+        </div>
+    </div>
+
+    <div id="message-overlay">
+        <h1 id="overlay-title">HARDCORE MODE</h1>
+        <p id="overlay-desc">
+            <strong>MISSION:</strong> Secure $100. The city is in lockdown.<br><br>
+            <strong>THREATS:</strong><br>
+            <span style="color:#ff3a3a">Red Mines:</span> High Damage.<br>
+            <span style="color:#d0f">Hunter Drones:</span> Fast & Relentless.
+        </p>
+        <button class="btn" id="start-btn">DEPLOY</button>
+    </div>
+</div>
+
+<script>
+    // --- TELEGRAM INIT ---
+    let tgUser = null;
+    if (window.Telegram && window.Telegram.WebApp) {
+        window.Telegram.WebApp.ready();
+        window.Telegram.WebApp.expand();
+        tgUser = window.Telegram.WebApp.initDataUnsafe?.user;
+        
+        if (tgUser) {
+            document.getElementById('player-id-display').textContent = `OPERATOR: ${tgUser.username || tgUser.first_name} [ID:${tgUser.id}]`;
+        }
+    }
+
+    // --- Configuration ---
+    const TARGET_SCORE = 100;
+    const TIME_LIMIT_SECONDS = 120;
+    
+    // Visual Config
+    const COLORS = {
+        player: '#0ff',
+        playerTrail: 'rgba(0, 255, 255, 0.4)',
+        coin: '#ffd700',
+        obstacle: '#ff3a3a', 
+        seeker: '#ff00aa', 
+        street: '#0a0a12',
+        building: '#11111a',
+        buildingTop: '#151522'
+    };
+
+    // --- Game State ---
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const gameContainer = document.getElementById('game-container');
+    
+    // Elements
+    const scoreDisplay = document.getElementById('scoreDisplay');
+    const timeDisplay = document.getElementById('timeDisplay');
+    const overlay = document.getElementById('message-overlay');
+    const overlayTitle = document.getElementById('overlay-title');
+    const overlayDesc = document.getElementById('overlay-desc');
+    const startBtn = document.getElementById('start-btn');
+    const joystickZone = document.getElementById('joystick-zone');
+    const joystickKnob = document.getElementById('joystick-knob');
+
+    // Pre-rendered City Background
+    let cityCanvas = document.createElement('canvas');
+    let cityCtx = cityCanvas.getContext('2d');
+    const CITY_SIZE = 2000;
+
+    let gameState = 'START'; 
+    let lastTime = 0;
+    let timer = TIME_LIMIT_SECONDS;
+    let score = 0;
+    
+    // Player
+    const player = {
+        x: 0,
+        y: 0,
+        size: 24,
+        speed: 350,
+        trail: [] 
+    };
+
+    // Entities
+    let coins = [];
+    let obstacles = [];
+    let seekers = []; 
+    let particles = [];
+    
+    // Inputs
+    const keys = {
+        ArrowUp: false, ArrowDown: false, ArrowLeft: false, ArrowRight: false,
+        w: false, s: false, a: false, d: false
+    };
+
+    const joystick = {
+        active: false,
+        originX: 0, originY: 0,
+        currentX: 0, currentY: 0,
+        radius: 50,
+        inputX: 0, inputY: 0
+    };
+
+    // --- Initialization ---
+
+    function generateCityBackground() {
+        cityCanvas.width = CITY_SIZE;
+        cityCanvas.height = CITY_SIZE;
+        
+        cityCtx.fillStyle = '#08080c';
+        cityCtx.fillRect(0, 0, CITY_SIZE, CITY_SIZE);
+
+        const blockSize = 250;
+        const streetWidth = 50;
+
+        cityCtx.fillStyle = '#15151a'; 
+        for(let y=0; y<CITY_SIZE; y+=blockSize) {
+            cityCtx.fillRect(0, y, CITY_SIZE, streetWidth);
+            cityCtx.fillStyle = '#2a2a35';
+            for(let i=0; i<CITY_SIZE; i+=40) cityCtx.fillRect(i, y + streetWidth/2 - 2, 20, 4);
+            cityCtx.fillStyle = '#15151a'; 
+        }
+        for(let x=0; x<CITY_SIZE; x+=blockSize) {
+            cityCtx.fillRect(x, 0, streetWidth, CITY_SIZE);
+            cityCtx.fillStyle = '#2a2a35';
+            for(let i=0; i<CITY_SIZE; i+=40) cityCtx.fillRect(x + streetWidth/2 - 2, i, 4, 20);
+            cityCtx.fillStyle = '#15151a'; 
+        }
+
+        for(let x=0; x<CITY_SIZE; x+=blockSize) {
+            for(let y=0; y<CITY_SIZE; y+=blockSize) {
+                const bx = x + streetWidth;
+                const by = y + streetWidth;
+                const bw = blockSize - streetWidth;
+                const bh = blockSize - streetWidth;
+                
+                if (Math.random() > 0.05) { 
+                    cityCtx.fillStyle = '#0f1218';
+                    cityCtx.fillRect(bx + 5, by + 5, bw - 10, bh - 10);
+                    cityCtx.fillStyle = '#161922';
+                    cityCtx.fillRect(bx + 15, by + 15, bw - 30, bh - 30);
+                    cityCtx.fillStyle = '#222530';
+                    cityCtx.fillRect(bx + 30, by + 30, 20, 20);
+                    cityCtx.fillRect(bx + bw - 50, by + bh - 50, 30, 15);
+
+                    const lightColor = Math.random() > 0.5 ? '#003333' : '#330033';
+                    cityCtx.fillStyle = lightColor;
+                    cityCtx.beginPath();
+                    cityCtx.arc(bx + 20, by + 20, 3, 0, Math.PI*2);
+                    cityCtx.fill();
+                }
+            }
+        }
+        
+        for(let x=0; x<CITY_SIZE; x+=blockSize) {
+            for(let y=0; y<CITY_SIZE; y+=blockSize) {
+                const grad = cityCtx.createRadialGradient(x+streetWidth/2, y+streetWidth/2, 0, x+streetWidth/2, y+streetWidth/2, 40);
+                grad.addColorStop(0, 'rgba(255, 200, 100, 0.1)');
+                grad.addColorStop(1, 'rgba(0,0,0,0)');
+                cityCtx.fillStyle = grad;
+                cityCtx.fillRect(x, y, streetWidth, streetWidth);
+            }
+        }
+    }
+
+    function resize() {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+    }
+    
+    window.addEventListener('resize', resize);
+    generateCityBackground();
+    resize();
+
+    if ('ontouchstart' in window || navigator.maxTouchPoints > 0) {
+        joystickZone.style.display = 'block';
+    }
+
+    // --- Input Handling ---
+
+    window.addEventListener('keydown', (e) => { if(keys.hasOwnProperty(e.key)) keys[e.key] = true; });
+    window.addEventListener('keyup', (e) => { if(keys.hasOwnProperty(e.key)) keys[e.key] = false; });
+
+    joystickZone.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        const touch = e.changedTouches[0];
+        const rect = joystickZone.getBoundingClientRect();
+        joystick.active = true;
+        joystick.originX = rect.left + rect.width / 2;
+        joystick.originY = rect.top + rect.height / 2;
+        updateJoystick(touch.clientX, touch.clientY);
+    });
+
+    joystickZone.addEventListener('touchmove', (e) => {
+        e.preventDefault();
+        if (!joystick.active) return;
+        const touch = e.changedTouches[0];
+        updateJoystick(touch.clientX, touch.clientY);
+    });
+
+    const endJoystick = (e) => {
+        e.preventDefault();
+        joystick.active = false;
+        joystick.inputX = 0;
+        joystick.inputY = 0;
+        joystickKnob.style.transform = `translate(-50%, -50%) translate(0px, 0px)`;
+    };
+
+    joystickZone.addEventListener('touchend', endJoystick);
+    joystickZone.addEventListener('touchcancel', endJoystick);
+
+    function updateJoystick(clientX, clientY) {
+        const dx = clientX - joystick.originX;
+        const dy = clientY - joystick.originY;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        let moveX = dx, moveY = dy;
+        if (dist > joystick.radius) {
+            const angle = Math.atan2(dy, dx);
+            moveX = Math.cos(angle) * joystick.radius;
+            moveY = Math.sin(angle) * joystick.radius;
+        }
+        joystickKnob.style.transform = `translate(-50%, -50%) translate(${moveX}px, ${moveY}px)`;
+        joystick.inputX = moveX / joystick.radius;
+        joystick.inputY = moveY / joystick.radius;
+    }
+
+    // --- Game Logic ---
+
+    function spawnCoin() {
+        const margin = 50;
+        const coin = {
+            x: margin + Math.random() * (canvas.width - margin * 2),
+            y: margin + Math.random() * (canvas.height - margin * 2),
+            radius: 9,
+            value: Math.random() > 0.8 ? 5 : 1, // Rare $5
+            floatOffset: Math.random() * Math.PI * 2,
+            pulse: 0
+        };
+        coins.push(coin);
+    }
+
+    function spawnSeeker() {
+        const edge = Math.floor(Math.random() * 4);
+        let x, y;
+        if (edge === 0) { x = Math.random() * canvas.width; y = -50; }
+        else if (edge === 1) { x = canvas.width + 50; y = Math.random() * canvas.height; }
+        else if (edge === 2) { x = Math.random() * canvas.width; y = canvas.height + 50; }
+        else { x = -50; y = Math.random() * canvas.height; }
+
+        seekers.push({
+            x: x,
+            y: y,
+            radius: 16,
+            speed: 120 + Math.random() * 50, // FAST
+            angle: 0,
+            rotorAngle: 0
+        });
+    }
+
+    function spawnObstacle() {
+        const margin = 50;
+        let x, y, dist;
+        do {
+            x = margin + Math.random() * (canvas.width - margin * 2);
+            y = margin + Math.random() * (canvas.height - margin * 2);
+            dist = Math.hypot(x - player.x, y - player.y);
+        } while(dist < 200);
+
+        const obstacle = {
+            x: x,
+            y: y,
+            radius: 18 + Math.random() * 10,
+            angle: Math.random() * Math.PI * 2,
+            rotationSpeed: (Math.random() - 0.5) * 2,
+            speed: 60 + Math.random() * 60, // Faster Mines
+            vx: (Math.random() - 0.5) * 2,
+            vy: (Math.random() - 0.5) * 2
+        };
+        obstacles.push(obstacle);
+    }
+
+    function resetGame() {
+        player.x = canvas.width / 2;
+        player.y = canvas.height / 2;
+        player.trail = [];
+        score = 0;
+        timer = TIME_LIMIT_SECONDS;
+        coins = [];
+        obstacles = [];
+        seekers = [];
+        particles = [];
+        
+        scoreDisplay.textContent = score;
+        updateTimerDisplay();
+
+        for(let i=0; i<6; i++) spawnCoin();
+        for(let i=0; i<8; i++) spawnObstacle(); 
+        
+        gameState = 'PLAYING';
+        overlay.classList.add('hidden');
+        lastTime = performance.now();
+        requestAnimationFrame(gameLoop);
+    }
+
+    function updateTimerDisplay() {
+        const m = Math.floor(timer / 60);
+        const s = Math.floor(timer % 60).toString().padStart(2, '0');
+        timeDisplay.textContent = `${m}:${s}`;
+        
+        if (timer <= 30) timeDisplay.style.color = '#f03e3e';
+        else timeDisplay.style.color = '#0ff';
+    }
+
+    function createExplosion(x, y, color, count) {
+        for(let i=0; i<count; i++) {
+            const angle = Math.random() * Math.PI * 2;
+            const velocity = Math.random() * 150;
+            particles.push({
+                x: x, y: y,
+                vx: Math.cos(angle) * velocity,
+                vy: Math.sin(angle) * velocity,
+                life: 1.0, color: color,
+                size: Math.random() * 3 + 1
+            });
+        }
+    }
+
+    function triggerShake() {
+        gameContainer.classList.remove('shake');
+        void gameContainer.offsetWidth; 
+        gameContainer.classList.add('shake');
+    }
+
+    function gameOver(won) {
+        gameState = won ? 'WON' : 'GAME_OVER';
+        overlay.classList.remove('hidden');
+        
+        if (won) {
+            overlayTitle.textContent = "EXTRACTION SUCCESS";
+            overlayTitle.style.color = "#0f0";
+            overlayDesc.innerHTML = `You made it out with <strong>$${score}</strong>.<br>Time left: ${Math.floor(timer)}s.`;
+            startBtn.textContent = "PLAY AGAIN";
+        } else {
+            overlayTitle.textContent = "FLATLINED";
+            overlayTitle.style.color = "#f03e3e";
+            overlayDesc.innerHTML = `Mission failed.<br>Funds: $${score} / $${TARGET_SCORE}`;
+            startBtn.textContent = "RETRY";
+        }
+
+        // --- SEND RESULT TO TELEGRAM VIA BACKEND ---
+        if (tgUser) {
+            // Haptic Feedback
+            if (window.Telegram.WebApp.HapticFeedback) {
+                 window.Telegram.WebApp.HapticFeedback.notificationOccurred(won ? 'success' : 'error');
+            }
+
+            const payload = {
+                userId: tgUser.id,
+                username: tgUser.username || tgUser.first_name,
+                score: score,
+                timeLeft: Math.floor(timer),
+                won: won
+            };
+
+            // Send to Vercel API
+            fetch('/api/submit-score', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            }).then(res => {
+                console.log("Score submitted");
+            }).catch(err => {
+                console.error("Error submitting score:", err);
+            });
+        }
+    }
+
+    function update(dt) {
+        if (gameState !== 'PLAYING') return;
+
+        timer -= dt;
+        if (timer <= 0) {
+            timer = 0;
+            gameOver(false);
+            return;
+        }
+        updateTimerDisplay();
+
+        // --- Player Movement ---
+        let dx = 0, dy = 0;
+        if (keys.ArrowUp || keys.w) dy = -1;
+        if (keys.ArrowDown || keys.s) dy = 1;
+        if (keys.ArrowLeft || keys.a) dx = -1;
+        if (keys.ArrowRight || keys.d) dx = 1;
+
+        if (joystick.active || Math.abs(joystick.inputX) > 0.1) {
+            dx = joystick.inputX;
+            dy = joystick.inputY;
+        } else if (dx !== 0 || dy !== 0) {
+            const len = Math.sqrt(dx*dx + dy*dy);
+            dx/=len; dy/=len;
+        }
+
+        player.x += dx * player.speed * dt;
+        player.y += dy * player.speed * dt;
+
+        // Player Bounds
+        player.x = Math.max(player.size, Math.min(canvas.width - player.size, player.x));
+        player.y = Math.max(player.size, Math.min(canvas.height - player.size, player.y));
+
+        player.trail.push({x: player.x, y: player.y});
+        if (player.trail.length > 10) player.trail.shift();
+
+        // --- Spawners ---
+        if (coins.length < 8) { if (Math.random() < 0.08) spawnCoin(); }
+        
+        // Difficulty Scaling: Aggressive
+        const difficulty = 1 + (score / 150); 
+        const maxObstacles = 8 + Math.floor(score / 15);
+        if (obstacles.length < maxObstacles) { if (Math.random() < 0.03) spawnObstacle(); }
+
+        // Seekers (Spawn sooner: $15)
+        const maxSeekers = Math.floor((score - 5) / 20); 
+        if (score >= 15 && seekers.length < maxSeekers) {
+             if (Math.random() < 0.01) spawnSeeker();
+        }
+
+        // --- Entity Updates ---
+
+        // 1. Obstacles (Mines)
+        obstacles.forEach(obs => {
+            obs.x += obs.vx * obs.speed * difficulty * dt;
+            obs.y += obs.vy * obs.speed * difficulty * dt;
+            obs.angle += obs.rotationSpeed * dt;
+
+            if (obs.x < 0 || obs.x > canvas.width) obs.vx *= -1;
+            if (obs.y < 0 || obs.y > canvas.height) obs.vy *= -1;
+
+            const dist = Math.hypot(player.x - obs.x, player.y - obs.y);
+            if (dist < player.size/2 + obs.radius - 2) {
+                if (score > 0) {
+                    // PUNISHING: -5 Credits, -3 Seconds
+                    score = Math.max(0, score - 5); 
+                    scoreDisplay.textContent = score;
+                    createExplosion(player.x, player.y, COLORS.player, 12);
+                    triggerShake();
+                    
+                    if (window.Telegram.WebApp.HapticFeedback) window.Telegram.WebApp.HapticFeedback.impactOccurred('medium');
+
+                    const angle = Math.atan2(player.y - obs.y, player.x - obs.x);
+                    player.x += Math.cos(angle) * 80;
+                    player.y += Math.sin(angle) * 80;
+                    
+                    timer = Math.max(0, timer - 3); 
+                }
+            }
+        });
+
+        // 2. Seekers (Quadcopters)
+        seekers.forEach(seeker => {
+            const angle = Math.atan2(player.y - seeker.y, player.x - seeker.x);
+            // Speed increases with score
+            const currentSpeed = seeker.speed * (1 + score/200);
+            
+            seeker.x += Math.cos(angle) * currentSpeed * dt;
+            seeker.y += Math.sin(angle) * currentSpeed * dt;
+            seeker.angle = angle;
+            seeker.rotorAngle += dt * 25; // Spin faster
+
+            const dist = Math.hypot(player.x - seeker.x, player.y - seeker.y);
+            if (dist < player.size/2 + seeker.radius) {
+                // VERY PUNISHING: -10 Credits
+                score = Math.max(0, score - 10);
+                scoreDisplay.textContent = score;
+                triggerShake();
+                createExplosion(player.x, player.y, '#d0f', 20);
+                
+                if (window.Telegram.WebApp.HapticFeedback) window.Telegram.WebApp.HapticFeedback.impactOccurred('heavy');
+
+                seeker.x = Math.random() > 0.5 ? -50 : canvas.width + 50;
+                seeker.y = Math.random() > 0.5 ? -50 : canvas.height + 50;
+            }
+        });
+
+        // 3. Coins
+        for (let i = coins.length - 1; i >= 0; i--) {
+            const coin = coins[i];
+            coin.pulse += dt * 4;
+            
+            const dist = Math.hypot(player.x - coin.x, player.y - coin.y);
+            if (dist < player.size/2 + coin.radius + 10) {
+                score += coin.value;
+                scoreDisplay.textContent = score;
+                createExplosion(coin.x, coin.y, COLORS.coin, 6);
+                if (window.Telegram.WebApp.HapticFeedback) window.Telegram.WebApp.HapticFeedback.selectionChanged();
+
+                coins.splice(i, 1);
+                
+                if (score >= TARGET_SCORE) gameOver(true);
+            }
+        }
+
+        // 4. Particles
+        for (let i = particles.length - 1; i >= 0; i--) {
+            let p = particles[i];
+            p.x += p.vx * dt;
+            p.y += p.vy * dt;
+            p.life -= dt * 2;
+            if (p.life <= 0) particles.splice(i, 1);
+        }
+    }
+
+    function draw() {
+        const bgX = -(player.x * 0.4) % CITY_SIZE;
+        const bgY = -(player.y * 0.4) % CITY_SIZE;
+
+        ctx.drawImage(cityCanvas, bgX, bgY);
+        ctx.drawImage(cityCanvas, bgX + CITY_SIZE, bgY);
+        ctx.drawImage(cityCanvas, bgX, bgY + CITY_SIZE);
+        ctx.drawImage(cityCanvas, bgX + CITY_SIZE, bgY + CITY_SIZE);
+
+        const grad = ctx.createRadialGradient(canvas.width/2, canvas.height/2, canvas.height/3, canvas.width/2, canvas.height/2, canvas.height);
+        grad.addColorStop(0, 'rgba(0,0,0,0)');
+        grad.addColorStop(1, 'rgba(0,0,0,0.7)');
+        ctx.fillStyle = grad;
+        ctx.fillRect(0,0,canvas.width, canvas.height);
+
+        particles.forEach(p => {
+            ctx.fillStyle = p.color;
+            ctx.globalAlpha = p.life;
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, p.size, 0, Math.PI*2);
+            ctx.fill();
+        });
+        ctx.globalAlpha = 1.0;
+
+        if (player.trail.length > 1) {
+            ctx.strokeStyle = COLORS.playerTrail;
+            ctx.lineWidth = player.size / 2;
+            ctx.lineCap = 'round';
+            ctx.beginPath();
+            ctx.moveTo(player.trail[0].x, player.trail[0].y);
+            for(let i=1; i<player.trail.length; i++) ctx.lineTo(player.trail[i].x, player.trail[i].y);
+            ctx.stroke();
+        }
+
+        ctx.save();
+        ctx.translate(player.x, player.y);
+        ctx.shadowBlur = 15;
+        ctx.shadowColor = COLORS.player;
+        ctx.fillStyle = '#000';
+        ctx.strokeStyle = COLORS.player;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(14, 0); ctx.lineTo(-10, 10); ctx.lineTo(-6, 0); ctx.lineTo(-10, -10);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+        ctx.restore();
+
+        coins.forEach(coin => {
+            const scale = 1 + Math.sin(coin.pulse) * 0.1;
+            ctx.save();
+            ctx.translate(coin.x, coin.y);
+            ctx.scale(scale, scale);
+            ctx.shadowBlur = 10; ctx.shadowColor = COLORS.coin;
+            ctx.fillStyle = coin.value > 1 ? '#ffd700' : '#dcb158';
+            ctx.beginPath();
+            ctx.arc(0, 0, coin.radius, 0, Math.PI*2);
+            ctx.fill();
+            ctx.fillStyle = '#000';
+            ctx.font = 'bold 10px sans-serif';
+            ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            ctx.fillText(coin.value > 1 ? '$5' : '$', 0, 1);
+            ctx.restore();
+        });
+
+        obstacles.forEach(obs => {
+            ctx.save();
+            ctx.translate(obs.x, obs.y);
+            ctx.rotate(obs.angle);
+            ctx.shadowBlur = 8; ctx.shadowColor = COLORS.obstacle;
+            ctx.fillStyle = '#300';
+            ctx.strokeStyle = '#f00';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(0, 0, obs.radius * 0.6, 0, Math.PI*2);
+            ctx.fill();
+            ctx.stroke();
+            for(let i=0; i<8; i++) {
+                ctx.beginPath();
+                ctx.rotate(Math.PI/4);
+                ctx.moveTo(obs.radius * 0.6, 0);
+                ctx.lineTo(obs.radius, 0);
+                ctx.stroke();
+            }
+            ctx.restore();
+        });
+
+        seekers.forEach(seeker => {
+            ctx.save();
+            ctx.translate(seeker.x, seeker.y);
+            ctx.rotate(seeker.angle + Math.PI/2);
+            
+            ctx.shadowBlur = 10; ctx.shadowColor = '#d0f';
+            ctx.strokeStyle = '#888';
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.moveTo(-12, -12); ctx.lineTo(12, 12);
+            ctx.moveTo(12, -12); ctx.lineTo(-12, 12);
+            ctx.stroke();
+
+            ctx.fillStyle = '#222';
+            ctx.beginPath();
+            ctx.arc(0, 0, 5, 0, Math.PI*2);
+            ctx.fill();
+            
+            ctx.fillStyle = '#f0f';
+            ctx.beginPath();
+            ctx.arc(0, -2, 2, 0, Math.PI*2);
+            ctx.fill();
+
+            ctx.fillStyle = 'rgba(200, 255, 255, 0.5)';
+            const rSize = 6;
+            const offsets = [[-12, -12], [12, -12], [-12, 12], [12, 12]];
+            
+            offsets.forEach(pos => {
+                ctx.beginPath();
+                ctx.save();
+                ctx.translate(pos[0], pos[1]);
+                ctx.rotate(seeker.rotorAngle);
+                ctx.ellipse(0, 0, rSize, 2, 0, 0, Math.PI*2);
+                ctx.fill();
+                ctx.restore();
+            });
+
+            ctx.restore();
+        });
+    }
+
+    function gameLoop(timestamp) {
+        if (gameState !== 'PLAYING') return;
+        const dt = Math.min((timestamp - lastTime) / 1000, 0.1);
+        lastTime = timestamp;
+        update(dt);
+        draw();
+        requestAnimationFrame(gameLoop);
+    }
+
+    startBtn.addEventListener('click', () => {
+        resetGame();
+    });
+
+    ctx.fillStyle = '#050510';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+</script>
+</body>
+</html>
