@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Cyber City Scavenger</title>
+    <title>Thief in the Cyber World</title>
     <!-- Telegram Web App SDK -->
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
@@ -16,6 +16,8 @@
             font-family: 'Orbitron', sans-serif;
             color: #0ff;
             touch-action: none;
+            user-select: none;
+            -webkit-user-select: none;
         }
 
         #game-container {
@@ -28,7 +30,6 @@
             overflow: hidden;
         }
 
-        /* Scanline Effect */
         #scanlines {
             position: absolute;
             top: 0;
@@ -102,12 +103,13 @@
         }
 
         h1 {
-            font-size: 48px;
+            font-size: 40px; /* Slightly smaller to fit mobile better */
             margin-bottom: 15px;
             color: #fff;
             text-shadow: 0 0 10px #0ff, 0 0 20px #0ff;
             text-align: center;
             padding: 0 20px;
+            line-height: 1.2;
         }
 
         p {
@@ -154,11 +156,21 @@
             text-shadow: 0 0 5px #0ff;
         }
 
-        /* Joystick area */
-        #joystick-zone {
+        /* Controls */
+        #controls-container {
             position: absolute;
-            bottom: 40px;
-            left: 40px;
+            bottom: 20px;
+            left: 0;
+            width: 100%;
+            height: 160px;
+            pointer-events: none;
+            display: flex;
+            justify-content: space-between;
+            padding: 0 40px;
+            box-sizing: border-box;
+        }
+
+        #joystick-zone {
             width: 140px;
             height: 140px;
             background: rgba(255, 255, 255, 0.05);
@@ -167,6 +179,7 @@
             display: none; 
             pointer-events: auto;
             touch-action: none;
+            position: relative;
         }
 
         #joystick-knob {
@@ -180,6 +193,31 @@
             border-radius: 50%;
             transform: translate(-50%, -50%);
             box-shadow: 0 0 10px #0ff;
+        }
+
+        #fire-btn {
+            width: 100px;
+            height: 100px;
+            background: rgba(255, 50, 50, 0.2);
+            border: 2px solid #ff3232;
+            border-radius: 50%;
+            display: none;
+            pointer-events: auto;
+            align-self: flex-end;
+            margin-bottom: 20px;
+            color: #ff3232;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-weight: bold;
+            font-size: 18px;
+            box-shadow: 0 0 15px rgba(255, 50, 50, 0.3);
+            transition: all 0.1s;
+        }
+
+        #fire-btn:active {
+            background: rgba(255, 50, 50, 0.6);
+            transform: scale(0.95);
         }
 
         .hidden {
@@ -211,20 +249,23 @@
             <div class="stat-box">TIME: <span id="timeDisplay">2:00</span></div>
         </div>
         
-        <div id="joystick-zone">
-            <div id="joystick-knob"></div>
+        <div id="controls-container">
+            <div id="joystick-zone">
+                <div id="joystick-knob"></div>
+            </div>
+            <div id="fire-btn" style="display:none;">FIRE</div>
         </div>
     </div>
 
     <div id="message-overlay">
-        <h1 id="overlay-title">HARDCORE MODE</h1>
+        <h1 id="overlay-title">THIEF IN THE CYBER WORLD</h1>
         <p id="overlay-desc">
-            <strong>MISSION:</strong> Secure $100. The city is in lockdown.<br><br>
-            <strong>THREATS:</strong><br>
-            <span style="color:#ff3a3a">Red Mines:</span> High Damage.<br>
-            <span style="color:#d0f">Hunter Drones:</span> Fast & Relentless.
+            <strong>MISSION:</strong> Steal $100 and escape.<br>
+            <strong>INTEL:</strong> Avoid mines. Destroy drones.<br>
+            <span style="color:#0ff">PC:</span> WASD + Space to Shoot.<br>
+            <span style="color:#0ff">Mobile:</span> Joystick + Fire Button.
         </p>
-        <button class="btn" id="start-btn">DEPLOY</button>
+        <button class="btn" id="start-btn">JACK IN</button>
     </div>
 </div>
 
@@ -244,14 +285,17 @@
     // --- Configuration ---
     const TARGET_SCORE = 100;
     const TIME_LIMIT_SECONDS = 120;
+    const ACCELERATION = 2000;
+    const MAX_SPEED = 450;
+    const FRICTION = 0.92;
     
-    // Visual Config
     const COLORS = {
         player: '#0ff',
         playerTrail: 'rgba(0, 255, 255, 0.4)',
         coin: '#ffd700',
         obstacle: '#ff3a3a', 
-        seeker: '#ff00aa', 
+        seeker: '#ff00aa',
+        projectile: '#eeffff',
         street: '#0a0a12',
         building: '#11111a',
         buildingTop: '#151522'
@@ -271,6 +315,7 @@
     const startBtn = document.getElementById('start-btn');
     const joystickZone = document.getElementById('joystick-zone');
     const joystickKnob = document.getElementById('joystick-knob');
+    const fireBtn = document.getElementById('fire-btn');
 
     // Pre-rendered City Background
     let cityCanvas = document.createElement('canvas');
@@ -286,9 +331,13 @@
     const player = {
         x: 0,
         y: 0,
+        vx: 0, 
+        vy: 0,
         size: 24,
-        speed: 350,
-        trail: [] 
+        trail: [],
+        rotation: 0,
+        cooldown: 0,
+        invulnerable: 0
     };
 
     // Entities
@@ -296,11 +345,13 @@
     let obstacles = [];
     let seekers = []; 
     let particles = [];
+    let projectiles = [];
     
     // Inputs
     const keys = {
         ArrowUp: false, ArrowDown: false, ArrowLeft: false, ArrowRight: false,
-        w: false, s: false, a: false, d: false
+        w: false, s: false, a: false, d: false,
+        ' ': false 
     };
 
     const joystick = {
@@ -382,8 +433,10 @@
     generateCityBackground();
     resize();
 
-    if ('ontouchstart' in window || navigator.maxTouchPoints > 0) {
+    const isTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+    if (isTouch) {
         joystickZone.style.display = 'block';
+        fireBtn.style.display = 'flex';
     }
 
     // --- Input Handling ---
@@ -434,7 +487,43 @@
         joystick.inputY = moveY / joystick.radius;
     }
 
+    fireBtn.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        attemptShoot();
+    });
+
     // --- Game Logic ---
+
+    function attemptShoot() {
+        if (player.cooldown > 0) return;
+        
+        player.cooldown = 0.25; 
+
+        // Use current velocity for shoot direction
+        let speed = Math.sqrt(player.vx*player.vx + player.vy*player.vy);
+        let dirX = 1, dirY = 0;
+        
+        if (speed > 10) {
+            dirX = player.vx / speed;
+            dirY = player.vy / speed;
+        } else {
+            // If standing still, use rotation
+            dirX = Math.cos(player.rotation);
+            dirY = Math.sin(player.rotation);
+        }
+
+        projectiles.push({
+            x: player.x,
+            y: player.y,
+            vx: dirX * 900 + player.vx * 0.2, 
+            vy: dirY * 900 + player.vy * 0.2,
+            life: 0.8
+        });
+
+        if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.HapticFeedback) {
+            window.Telegram.WebApp.HapticFeedback.selectionChanged();
+        }
+    }
 
     function spawnCoin() {
         const margin = 50;
@@ -442,7 +531,8 @@
             x: margin + Math.random() * (canvas.width - margin * 2),
             y: margin + Math.random() * (canvas.height - margin * 2),
             radius: 9,
-            value: Math.random() > 0.8 ? 5 : 1, // Rare $5
+            // CHANGED: Base value $2, Bonus value $8 (previously $1/$5)
+            value: Math.random() > 0.8 ? 8 : 2, 
             floatOffset: Math.random() * Math.PI * 2,
             pulse: 0
         };
@@ -461,7 +551,7 @@
             x: x,
             y: y,
             radius: 16,
-            speed: 120 + Math.random() * 50, // FAST
+            speed: 120 + Math.random() * 50, 
             angle: 0,
             rotorAngle: 0
         });
@@ -482,7 +572,7 @@
             radius: 18 + Math.random() * 10,
             angle: Math.random() * Math.PI * 2,
             rotationSpeed: (Math.random() - 0.5) * 2,
-            speed: 60 + Math.random() * 60, // Faster Mines
+            speed: 60 + Math.random() * 60,
             vx: (Math.random() - 0.5) * 2,
             vy: (Math.random() - 0.5) * 2
         };
@@ -492,19 +582,24 @@
     function resetGame() {
         player.x = canvas.width / 2;
         player.y = canvas.height / 2;
+        player.vx = 0;
+        player.vy = 0;
         player.trail = [];
+        player.cooldown = 0;
+        player.invulnerable = 0;
         score = 0;
         timer = TIME_LIMIT_SECONDS;
         coins = [];
         obstacles = [];
         seekers = [];
         particles = [];
+        projectiles = [];
         
         scoreDisplay.textContent = score;
         updateTimerDisplay();
 
         for(let i=0; i<6; i++) spawnCoin();
-        for(let i=0; i<8; i++) spawnObstacle(); 
+        for(let i=0; i<6; i++) spawnObstacle(); // Reduced start obstacles slightly
         
         gameState = 'PLAYING';
         overlay.classList.add('hidden');
@@ -546,20 +641,18 @@
         overlay.classList.remove('hidden');
         
         if (won) {
-            overlayTitle.textContent = "EXTRACTION SUCCESS";
+            overlayTitle.textContent = "HEIST SUCCESSFUL";
             overlayTitle.style.color = "#0f0";
-            overlayDesc.innerHTML = `You made it out with <strong>$${score}</strong>.<br>Time left: ${Math.floor(timer)}s.`;
-            startBtn.textContent = "PLAY AGAIN";
+            overlayDesc.innerHTML = `You secured <strong>$${score}</strong> and escaped.<br>Time remaining: ${Math.floor(timer)}s.`;
+            startBtn.textContent = "STEAL AGAIN";
         } else {
-            overlayTitle.textContent = "FLATLINED";
+            overlayTitle.textContent = "BUSTED";
             overlayTitle.style.color = "#f03e3e";
-            overlayDesc.innerHTML = `Mission failed.<br>Funds: $${score} / $${TARGET_SCORE}`;
+            overlayDesc.innerHTML = `Connection terminated.<br>Credits Stolen: $${score} / $${TARGET_SCORE}`;
             startBtn.textContent = "RETRY";
         }
 
-        // --- SEND RESULT TO TELEGRAM VIA BACKEND ---
         if (tgUser) {
-            // Haptic Feedback
             if (window.Telegram.WebApp.HapticFeedback) {
                  window.Telegram.WebApp.HapticFeedback.notificationOccurred(won ? 'success' : 'error');
             }
@@ -572,16 +665,11 @@
                 won: won
             };
 
-            // Send to Vercel API
             fetch('/api/submit-score', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)
-            }).then(res => {
-                console.log("Score submitted");
-            }).catch(err => {
-                console.error("Error submitting score:", err);
-            });
+            }).catch(console.error);
         }
     }
 
@@ -595,28 +683,56 @@
             return;
         }
         updateTimerDisplay();
+        
+        if (player.cooldown > 0) player.cooldown -= dt;
+        if (player.invulnerable > 0) player.invulnerable -= dt;
 
-        // --- Player Movement ---
-        let dx = 0, dy = 0;
-        if (keys.ArrowUp || keys.w) dy = -1;
-        if (keys.ArrowDown || keys.s) dy = 1;
-        if (keys.ArrowLeft || keys.a) dx = -1;
-        if (keys.ArrowRight || keys.d) dx = 1;
+        // --- Physics Based Movement ---
+        let inputX = 0;
+        let inputY = 0;
 
-        if (joystick.active || Math.abs(joystick.inputX) > 0.1) {
-            dx = joystick.inputX;
-            dy = joystick.inputY;
-        } else if (dx !== 0 || dy !== 0) {
-            const len = Math.sqrt(dx*dx + dy*dy);
-            dx/=len; dy/=len;
+        if (joystick.active || Math.abs(joystick.inputX) > 0.1 || Math.abs(joystick.inputY) > 0.1) {
+            inputX = joystick.inputX;
+            inputY = joystick.inputY;
+        } else {
+            if (keys.ArrowUp || keys.w) inputY = -1;
+            if (keys.ArrowDown || keys.s) inputY = 1;
+            if (keys.ArrowLeft || keys.a) inputX = -1;
+            if (keys.ArrowRight || keys.d) inputX = 1;
+            
+            if (inputX !== 0 || inputY !== 0) {
+                const len = Math.sqrt(inputX*inputX + inputY*inputY);
+                inputX /= len;
+                inputY /= len;
+            }
         }
 
-        player.x += dx * player.speed * dt;
-        player.y += dy * player.speed * dt;
+        player.vx += inputX * ACCELERATION * dt;
+        player.vy += inputY * ACCELERATION * dt;
 
-        // Player Bounds
-        player.x = Math.max(player.size, Math.min(canvas.width - player.size, player.x));
-        player.y = Math.max(player.size, Math.min(canvas.height - player.size, player.y));
+        player.vx *= Math.pow(FRICTION, dt * 60);
+        player.vy *= Math.pow(FRICTION, dt * 60);
+
+        const speed = Math.sqrt(player.vx*player.vx + player.vy*player.vy);
+        if (speed > MAX_SPEED) {
+            player.vx = (player.vx / speed) * MAX_SPEED;
+            player.vy = (player.vy / speed) * MAX_SPEED;
+        }
+
+        player.x += player.vx * dt;
+        player.y += player.vy * dt;
+        
+        if (speed > 10) {
+            player.rotation = Math.atan2(player.vy, player.vx);
+        }
+
+        if (keys[' ']) attemptShoot();
+
+        const margin = player.size / 2;
+        if (player.x < margin) { player.x = margin; player.vx *= -0.5; }
+        if (player.x > canvas.width - margin) { player.x = canvas.width - margin; player.vx *= -0.5; }
+        if (player.y < margin) { player.y = margin; player.vy *= -0.5; }
+        if (player.y > canvas.height - margin) { player.y = canvas.height - margin; player.vy *= -0.5; }
 
         player.trail.push({x: player.x, y: player.y});
         if (player.trail.length > 10) player.trail.shift();
@@ -624,20 +740,68 @@
         // --- Spawners ---
         if (coins.length < 8) { if (Math.random() < 0.08) spawnCoin(); }
         
-        // Difficulty Scaling: Aggressive
         const difficulty = 1 + (score / 150); 
-        const maxObstacles = 8 + Math.floor(score / 15);
+        
+        // CHANGED: Obstacles cap reduced to 6 base + scale, slightly easier
+        const maxObstacles = 6 + Math.floor(score / 20);
         if (obstacles.length < maxObstacles) { if (Math.random() < 0.03) spawnObstacle(); }
 
-        // Seekers (Spawn sooner: $15)
-        const maxSeekers = Math.floor((score - 5) / 20); 
-        if (score >= 15 && seekers.length < maxSeekers) {
+        // CHANGED: Seekers appear later ($25) and scale slower (div 30)
+        const maxSeekers = Math.floor((score - 25) / 30); 
+        if (score >= 25 && seekers.length < maxSeekers) {
              if (Math.random() < 0.01) spawnSeeker();
         }
 
         // --- Entity Updates ---
+        
+        for (let i = projectiles.length - 1; i >= 0; i--) {
+            let p = projectiles[i];
+            p.x += p.vx * dt;
+            p.y += p.vy * dt;
+            p.life -= dt;
+            
+            if (p.life <= 0 || p.x < 0 || p.x > canvas.width || p.y < 0 || p.y > canvas.height) {
+                projectiles.splice(i, 1);
+                continue;
+            }
 
-        // 1. Obstacles (Mines)
+            let hit = false;
+            for (let j = seekers.length - 1; j >= 0; j--) {
+                const s = seekers[j];
+                const dist = Math.hypot(p.x - s.x, p.y - s.y);
+                if (dist < s.radius + 5) {
+                    createExplosion(s.x, s.y, '#f0f', 15);
+                    if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.HapticFeedback) {
+                        window.Telegram.WebApp.HapticFeedback.impactOccurred('medium');
+                    }
+                    score += 2; 
+                    scoreDisplay.textContent = score;
+                    seekers.splice(j, 1);
+                    hit = true;
+                    break; 
+                }
+            }
+            if (hit) {
+                projectiles.splice(i, 1);
+                continue;
+            }
+
+            for (let k = obstacles.length - 1; k >= 0; k--) {
+                const o = obstacles[k];
+                const dist = Math.hypot(p.x - o.x, p.y - o.y);
+                if (dist < o.radius + 5) {
+                    createExplosion(o.x, o.y, '#ff3a3a', 10);
+                     if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.HapticFeedback) {
+                        window.Telegram.WebApp.HapticFeedback.impactOccurred('light');
+                    }
+                    obstacles.splice(k, 1);
+                    hit = true;
+                    break;
+                }
+            }
+            if (hit) projectiles.splice(i, 1);
+        }
+
         obstacles.forEach(obs => {
             obs.x += obs.vx * obs.speed * difficulty * dt;
             obs.y += obs.vy * obs.speed * difficulty * dt;
@@ -646,53 +810,55 @@
             if (obs.x < 0 || obs.x > canvas.width) obs.vx *= -1;
             if (obs.y < 0 || obs.y > canvas.height) obs.vy *= -1;
 
-            const dist = Math.hypot(player.x - obs.x, player.y - obs.y);
-            if (dist < player.size/2 + obs.radius - 2) {
-                if (score > 0) {
-                    // PUNISHING: -5 Credits, -3 Seconds
-                    score = Math.max(0, score - 5); 
-                    scoreDisplay.textContent = score;
-                    createExplosion(player.x, player.y, COLORS.player, 12);
-                    triggerShake();
-                    
-                    if (window.Telegram.WebApp.HapticFeedback) window.Telegram.WebApp.HapticFeedback.impactOccurred('medium');
+            if (player.invulnerable <= 0) {
+                const dist = Math.hypot(player.x - obs.x, player.y - obs.y);
+                if (dist < player.size/2 + obs.radius - 2) {
+                    if (score > 0) {
+                        score = Math.max(0, score - 5); 
+                        scoreDisplay.textContent = score;
+                        createExplosion(player.x, player.y, COLORS.player, 12);
+                        triggerShake();
+                        
+                        if (window.Telegram.WebApp.HapticFeedback) window.Telegram.WebApp.HapticFeedback.impactOccurred('medium');
 
-                    const angle = Math.atan2(player.y - obs.y, player.x - obs.x);
-                    player.x += Math.cos(angle) * 80;
-                    player.y += Math.sin(angle) * 80;
-                    
-                    timer = Math.max(0, timer - 3); 
+                        const angle = Math.atan2(player.y - obs.y, player.x - obs.x);
+                        player.vx += Math.cos(angle) * 600;
+                        player.vy += Math.sin(angle) * 600;
+                        
+                        timer = Math.max(0, timer - 3); 
+                        player.invulnerable = 1.0; 
+                    }
                 }
             }
         });
 
-        // 2. Seekers (Quadcopters)
         seekers.forEach(seeker => {
             const angle = Math.atan2(player.y - seeker.y, player.x - seeker.x);
-            // Speed increases with score
             const currentSpeed = seeker.speed * (1 + score/200);
             
             seeker.x += Math.cos(angle) * currentSpeed * dt;
             seeker.y += Math.sin(angle) * currentSpeed * dt;
             seeker.angle = angle;
-            seeker.rotorAngle += dt * 25; // Spin faster
+            seeker.rotorAngle += dt * 25; 
 
-            const dist = Math.hypot(player.x - seeker.x, player.y - seeker.y);
-            if (dist < player.size/2 + seeker.radius) {
-                // VERY PUNISHING: -10 Credits
-                score = Math.max(0, score - 10);
-                scoreDisplay.textContent = score;
-                triggerShake();
-                createExplosion(player.x, player.y, '#d0f', 20);
-                
-                if (window.Telegram.WebApp.HapticFeedback) window.Telegram.WebApp.HapticFeedback.impactOccurred('heavy');
+            if (player.invulnerable <= 0) {
+                const dist = Math.hypot(player.x - seeker.x, player.y - seeker.y);
+                if (dist < player.size/2 + seeker.radius) {
+                    score = Math.max(0, score - 10);
+                    scoreDisplay.textContent = score;
+                    triggerShake();
+                    createExplosion(player.x, player.y, '#d0f', 20);
+                    
+                    if (window.Telegram.WebApp.HapticFeedback) window.Telegram.WebApp.HapticFeedback.impactOccurred('heavy');
 
-                seeker.x = Math.random() > 0.5 ? -50 : canvas.width + 50;
-                seeker.y = Math.random() > 0.5 ? -50 : canvas.height + 50;
+                    seeker.x = Math.random() > 0.5 ? -50 : canvas.width + 50;
+                    seeker.y = Math.random() > 0.5 ? -50 : canvas.height + 50;
+                    
+                    player.invulnerable = 1.0;
+                }
             }
         });
 
-        // 3. Coins
         for (let i = coins.length - 1; i >= 0; i--) {
             const coin = coins[i];
             coin.pulse += dt * 4;
@@ -710,7 +876,6 @@
             }
         }
 
-        // 4. Particles
         for (let i = particles.length - 1; i >= 0; i--) {
             let p = particles[i];
             p.x += p.vx * dt;
@@ -735,6 +900,18 @@
         ctx.fillStyle = grad;
         ctx.fillRect(0,0,canvas.width, canvas.height);
 
+        ctx.strokeStyle = '#eeffff';
+        ctx.shadowBlur = 10;
+        ctx.shadowColor = '#0ff';
+        ctx.lineWidth = 3;
+        projectiles.forEach(p => {
+            ctx.beginPath();
+            ctx.moveTo(p.x, p.y);
+            ctx.lineTo(p.x - p.vx * 0.02, p.y - p.vy * 0.02); 
+            ctx.stroke();
+        });
+        ctx.shadowBlur = 0;
+
         particles.forEach(p => {
             ctx.fillStyle = p.color;
             ctx.globalAlpha = p.life;
@@ -756,16 +933,35 @@
 
         ctx.save();
         ctx.translate(player.x, player.y);
+        ctx.rotate(player.rotation);
+
         ctx.shadowBlur = 15;
         ctx.shadowColor = COLORS.player;
         ctx.fillStyle = '#000';
         ctx.strokeStyle = COLORS.player;
+        
+        if (player.invulnerable > 0 && Math.floor(Date.now() / 50) % 2 === 0) {
+             ctx.strokeStyle = 'transparent'; 
+        }
+
         ctx.lineWidth = 2;
         ctx.beginPath();
         ctx.moveTo(14, 0); ctx.lineTo(-10, 10); ctx.lineTo(-6, 0); ctx.lineTo(-10, -10);
         ctx.closePath();
         ctx.fill();
         ctx.stroke();
+        
+        if (Math.abs(player.vx) > 10 || Math.abs(player.vy) > 10) {
+            ctx.fillStyle = '#0ff';
+            ctx.globalAlpha = 0.6 + Math.random() * 0.4;
+            ctx.beginPath();
+            ctx.moveTo(-10, -5);
+            ctx.lineTo(-20 - Math.random()*10, 0);
+            ctx.lineTo(-10, 5);
+            ctx.fill();
+            ctx.globalAlpha = 1.0;
+        }
+
         ctx.restore();
 
         coins.forEach(coin => {
@@ -774,14 +970,15 @@
             ctx.translate(coin.x, coin.y);
             ctx.scale(scale, scale);
             ctx.shadowBlur = 10; ctx.shadowColor = COLORS.coin;
-            ctx.fillStyle = coin.value > 1 ? '#ffd700' : '#dcb158';
+            ctx.fillStyle = coin.value > 5 ? '#ffd700' : '#dcb158';
             ctx.beginPath();
             ctx.arc(0, 0, coin.radius, 0, Math.PI*2);
             ctx.fill();
             ctx.fillStyle = '#000';
             ctx.font = 'bold 10px sans-serif';
             ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-            ctx.fillText(coin.value > 1 ? '$5' : '$', 0, 1);
+            // CHANGED: Update text to reflect new value
+            ctx.fillText(coin.value > 5 ? '$8' : '$2', 0, 1);
             ctx.restore();
         });
 
